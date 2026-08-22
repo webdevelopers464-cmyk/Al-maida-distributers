@@ -184,15 +184,17 @@ footer.credit{text-align:center; padding:20px; font-size:11px; color:var(--text-
   .print-only{display:block; position:absolute; top:0; left:0; width:100%; padding:20px;}
   .page-break{page-break-before:always;}
 }
-.inv-print-head{display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #0D3B4C; padding-bottom:12px; margin-bottom:16px;}
-.inv-print-head h1{font-family:var(--font-d); font-size:22px; color:#0D3B4C; font-weight:800;}
-.inv-print-head p{font-size:11.5px; color:#444; margin-top:2px;}
-.inv-print-head .meta{text-align:right; font-size:12px;}
-.inv-print-table{width:100%; border-collapse:collapse; margin:14px 0; font-size:11.5px;}
-.inv-print-table th,.inv-print-table td{border:1px solid #999; padding:6px 8px; text-align:left;}
+.inv-print-head{display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2.5px solid #0D3B4C; padding-bottom:8px; margin-bottom:10px;}
+.inv-print-head h1{font-family:var(--font-d); font-size:18px; color:#0D3B4C; font-weight:800;}
+.inv-print-head p{font-size:10px; color:#444; margin-top:1px;}
+.inv-print-head .meta{text-align:right; font-size:10.5px;}
+.inv-print-table{width:100%; border-collapse:collapse; margin:8px 0; font-size:10px;}
+.inv-print-table th,.inv-print-table td{border:1px solid #999; padding:3px 6px; text-align:left;}
 .inv-print-table th{background:#eee;}
-.form2a-box{border:2px solid #0D3B4C; padding:18px; margin-top:24px;}
-.form2a-box h2{text-align:center; font-family:var(--font-d); color:#0D3B4C; margin-bottom:12px; font-size:16px;}
+.form2a-box{border:1.5px solid #0D3B4C; padding:10px 12px; margin-top:10px;}
+.form2a-box h2{text-align:center; font-family:var(--font-d); color:#0D3B4C; margin-bottom:8px; font-size:13px;}
+#printInvoiceArea{font-size:12px;}
+#printInvoiceArea p{margin:2px 0;}
 
 @media (max-width:900px){
   .sidebar{transform:translateX(-100%);}
@@ -800,16 +802,16 @@ function printInvoice(id){
       <tr><td>Previous Balance</td><td>${fmt(inv.previousBalance)}</td></tr>
       <tr><td><strong>Total Payable</strong></td><td><strong>${fmt(inv.totalPayable)}</strong></td></tr>
     </table>
-    <p style="margin-top:10px; font-style:italic;">Amount in Words: ${inv.amountInWords}</p>
-    <p style="margin-top:30px; font-size:11px; text-align:center;">Software Developed By: FAZEEL AMJAD | Mob: 0300-8670229</p>
+    <p style="margin-top:6px; font-style:italic; font-size:10.5px;">Amount in Words: ${inv.amountInWords}</p>
+    <p style="margin-top:10px; font-size:9.5px; text-align:center; color:#666;">Software Developed By: FAZEEL AMJAD | Mob: 0300-8670229</p>
 
-    <div class="form2a-box page-break">
+    <div class="form2a-box">
       <h2>WARRANTY CERTIFICATE (FORM 2A)</h2>
       <table class="inv-print-table"><thead><tr><th>Invoice #</th><th>Customer</th><th>Product</th><th>Batch#</th><th>Date</th></tr></thead>
       <tbody>
       ${inv.items.map(it=>{ const p = state.products.find(x=>x.id===it.productId); return `<tr><td>${inv.invoiceNo}</td><td>${cust.name}</td><td>${p?p.name:'-'}</td><td>${it.batch}</td><td>${inv.date}</td></tr>`; }).join('')}
       </tbody></table>
-      <p style="margin-top:14px; font-size:11.5px;">This is to certify that the above listed drugs have been sold by AL-MAIDA DISTRIBUTORS (License No: 03-313-0156-90757D) in accordance with the Drugs Act, and that these are genuine, unexpired products purchased through valid supply channels.</p>
+      <p style="margin-top:10px; font-size:10.5px;">This is to certify that the above listed drugs have been sold by AL-MAIDA DISTRIBUTORS (License No: 03-313-0156-90757D) in accordance with the Drugs Act, and that these are genuine, unexpired products purchased through valid supply channels.</p>
     </div>
   `;
   document.getElementById('printInvoiceArea').innerHTML = html;
