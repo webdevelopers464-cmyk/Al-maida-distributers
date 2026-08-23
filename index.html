@@ -182,11 +182,10 @@ footer.credit{text-align:center; padding:20px; font-size:11px; color:var(--text-
   @page{ size:A4; margin:10mm; }
   body{margin:0;}
   .app, .modal-overlay, .toast-wrap{display:none !important;}
-  .print-only{display:block !important; position:static; width:100%; padding:0; margin:0;}
+  .print-only{display:flex !important; flex-direction:column; position:static; width:100%; padding:0; margin:0; min-height:277mm;}
   .page-break{page-break-before:always;}
   .form2a-box, .inv-print-table, .inv-print-head{page-break-inside:avoid;}
-  #printInvoiceArea{display:flex; flex-direction:column; min-height:277mm;}
-  #printInvoiceArea .form2a-box{margin-top:auto; margin-bottom:0;}
+  #printInvoiceArea .form2a-box{margin-top:auto !important; margin-bottom:0;}
 }
 .inv-print-head{display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0D3B4C; padding-bottom:6px; margin-bottom:8px;}
 .inv-print-head h1{font-family:var(--font-d); font-size:16px; color:#0D3B4C; font-weight:800;}
