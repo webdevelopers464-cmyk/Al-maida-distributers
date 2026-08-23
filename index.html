@@ -207,14 +207,63 @@ footer.credit{text-align:center; padding:20px; font-size:11px; color:var(--text-
   .content{padding:18px 14px 50px;}
   .modal{max-width:94vw;}
 }
+
+/* ============ LOGO ============ */
+.brand-logo{display:block; width:100%; height:100%;}
+.brand-logo .lg-ring{fill:none; stroke:currentColor;}
+.brand-logo .lg-cross{fill:currentColor;}
+
+/* ============ PRELOADER ============ */
+#preloader{
+  position:fixed; inset:0; z-index:1000; background:linear-gradient(160deg,var(--teal-900),var(--teal-800) 55%,var(--teal-700));
+  display:flex; align-items:center; justify-content:center; flex-direction:column; gap:18px;
+  transition:opacity .45s ease, visibility .45s ease;
+}
+#preloader.hide{opacity:0; visibility:hidden; pointer-events:none;}
+.preloader-logo{
+  width:76px; height:76px; border-radius:50%; border:2px dashed rgba(255,255,255,.55);
+  display:flex; align-items:center; justify-content:center; color:#fff; position:relative;
+  animation:preloaderPulse 1.8s ease-in-out infinite;
+}
+.preloader-logo svg{width:40px; height:40px;}
+.preloader-ring{
+  position:absolute; inset:-8px; border-radius:50%; border:3px solid transparent;
+  border-top-color:var(--mint-500); border-right-color:var(--mint-500);
+  animation:preloaderSpin 1s linear infinite;
+}
+@keyframes preloaderSpin{ to{ transform:rotate(360deg); } }
+@keyframes preloaderPulse{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.06); } }
+.preloader-text{font-family:var(--font-d); font-weight:800; color:#fff; font-size:16px; letter-spacing:.4px; text-align:center;}
+.preloader-text span{display:block; font-family:var(--font-m); font-weight:600; font-size:10.5px; letter-spacing:1.5px; color:rgba(255,255,255,.55); margin-top:5px; text-transform:uppercase;}
+.preloader-bar{width:160px; height:4px; border-radius:4px; background:rgba(255,255,255,.15); overflow:hidden;}
+.preloader-bar-fill{height:100%; width:40%; background:var(--mint-500); border-radius:4px; animation:preloaderBar 1.1s ease-in-out infinite;}
+@keyframes preloaderBar{ 0%{ transform:translateX(-100%); } 100%{ transform:translateX(350%); } }
 </style>
 </head>
 <body>
 
+<!-- PRELOADER -->
+<div id="preloader">
+  <div class="preloader-logo">
+    <div class="preloader-ring"></div>
+    <svg class="brand-logo" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+      <circle class="lg-ring" cx="24" cy="24" r="20" stroke-width="2.4"></circle>
+      <path class="lg-cross" d="M22 12h4v9h9v4h-9v9h-4v-9h-9v-4h9z"></path>
+    </svg>
+  </div>
+  <div class="preloader-text">AL-MAIDA DISTRIBUTORS<span>Loading Management System...</span></div>
+  <div class="preloader-bar"><div class="preloader-bar-fill"></div></div>
+</div>
+
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      <div class="stamp">AMD</div>
+      <div class="stamp">
+        <svg class="brand-logo" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+          <circle class="lg-ring" cx="24" cy="24" r="20" stroke-width="2.2"></circle>
+          <path class="lg-cross" d="M22 12h4v9h9v4h-9v9h-4v-9h-9v-4h9z"></path>
+        </svg>
+      </div>
       <h1>AL-MAIDA<br>DISTRIBUTORS</h1>
       <p>Lic# 03-313-0156-90757D</p>
     </div>
@@ -1228,6 +1277,16 @@ function wireView(view){
 
 /* ============ INIT ============ */
 render('dashboard');
+
+/* ============ HIDE PRELOADER ============ */
+function hidePreloader(){
+  const pl = document.getElementById('preloader');
+  if(pl) pl.classList.add('hide');
+}
+// keep the preloader up for a short minimum time so it doesn't just flash,
+// and also clear it once the window (fonts/icons) has fully loaded.
+const preloaderMinTimer = setTimeout(hidePreloader, 700);
+window.addEventListener('load', hidePreloader);
 </script>
 
 <!-- Firebase Cloud Sync -->
