@@ -242,7 +242,13 @@ footer.credit{text-align:center; padding:20px; font-size:11px; color:var(--text-
           <div class="sub" id="pageSub">Overview of your business today</div>
         </div>
       </div>
-      <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-m);" id="todayDate"></div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div id="cloudStatus" style="display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700; color:var(--text-muted);">
+          <span id="cloudDot" style="width:8px; height:8px; border-radius:50%; background:var(--amber-500); display:inline-block;"></span>
+          <span id="cloudLabel">Connecting...</span>
+        </div>
+        <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-m);" id="todayDate"></div>
+      </div>
     </div>
     <div class="content" id="content"></div>
     <footer class="credit">Software Developed By: FAZEEL AMJAD &nbsp;·&nbsp; Mob: 0300-8670229</footer>
@@ -283,7 +289,54 @@ let state = {
   bookers: load(DB.bookers, []),
   settings: load(DB.settings, { invoiceSeq: 1, year: new Date().getFullYear() })
 };
-function persist(part){ save(DB[part], state[part]); }
+
+/* ============ CLOUD SYNC (Firestore) ============ */
+let currentView = 'dashboard';
+let cloudConnected = false;
+const CLOUD_PARTS = ['products','customers','purchases','invoices','orders','bookers','settings'];
+
+function setCloudStatus(status){
+  const dot = document.getElementById('cloudDot');
+  const label = document.getElementById('cloudLabel');
+  if(!dot || !label) return;
+  if(status==='connected'){ dot.style.background = 'var(--mint-500)'; label.textContent = 'Synced'; label.style.color = 'var(--mint-600)'; }
+  else if(status==='error'){ dot.style.background = 'var(--red-500)'; label.textContent = 'Offline (local only)'; label.style.color = 'var(--red-700)'; }
+  else { dot.style.background = 'var(--amber-500)'; label.textContent = 'Connecting...'; label.style.color = 'var(--amber-700)'; }
+}
+
+function persist(part){
+  save(DB[part], state[part]); // always keep a local cache as a safety net
+  if(!window.fbDB){ return; }
+  try{
+    const ref = window.fbDoc(window.fbDB, 'amd', part);
+    const payload = part==='settings' ? state.settings : { list: state[part] };
+    window.fbSetDoc(ref, payload).catch(err=>{ console.error('Cloud save failed:', part, err); setCloudStatus('error'); });
+  }catch(e){ console.error(e); setCloudStatus('error'); }
+}
+
+function startCloudSync(){
+  CLOUD_PARTS.forEach(part=>{
+    const ref = window.fbDoc(window.fbDB, 'amd', part);
+    window.fbOnSnapshot(ref, snap=>{
+      cloudConnected = true;
+      setCloudStatus('connected');
+      if(snap.exists()){
+        const data = snap.data();
+        state[part] = part==='settings' ? data : (data.list || []);
+        save(DB[part], state[part]);
+        render(currentView);
+      } else {
+        // nothing in cloud yet for this part - push whatever we have locally (e.g. seed data)
+        persist(part);
+      }
+    }, err=>{
+      console.error('Sync error for', part, err);
+      setCloudStatus('error');
+    });
+  });
+}
+window.startApp = function(){ startCloudSync(); };
+
 function nextId(arr){ return arr.length ? Math.max(...arr.map(x=>x.id)) + 1 : 1; }
 
 /* seed demo data on first run */
@@ -339,6 +392,7 @@ document.querySelectorAll('.nav-item').forEach(btn=>{
     document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     const v = btn.dataset.view;
+    currentView = v;
     document.getElementById('pageTitle').textContent = titles[v][0];
     document.getElementById('pageSub').textContent = titles[v][1];
     render(v);
@@ -445,6 +499,7 @@ function viewDashboard(){
   </div>`;
 }
 function goto(view){
+  currentView = view;
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
   document.getElementById('pageTitle').textContent = titles[view][0];
   document.getElementById('pageSub').textContent = titles[view][1];
@@ -1174,6 +1229,33 @@ function wireView(view){
 
 /* ============ INIT ============ */
 render('dashboard');
+</script>
+
+<!-- Firebase Cloud Sync -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAP80RZVSk8_0uJpW7zuS4IWi3GkbcVQqU",
+    authDomain: "al-maida-distributors.firebaseapp.com",
+    projectId: "al-maida-distributors",
+    storageBucket: "al-maida-distributors.firebasestorage.app",
+    messagingSenderId: "471974875381",
+    appId: "1:471974875381:web:b8a028ba0d956c7967f5bc",
+    measurementId: "G-SR2Z5D4GER"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const db = getFirestore(fbApp);
+
+  // expose to the main (classic) script
+  window.fbDB = db;
+  window.fbDoc = doc;
+  window.fbSetDoc = setDoc;
+  window.fbOnSnapshot = onSnapshot;
+
+  if(window.startApp){ window.startApp(); }
 </script>
 </body>
 </html>
