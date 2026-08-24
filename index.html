@@ -1459,11 +1459,25 @@ function findNearestOrders(){
     resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><p>${geoErrorMessage(err)}</p></div>`;
   }, {enableHighAccuracy:true, timeout:12000, maximumAge:0});
 }
+let bookerEditingOrderId = null;
+
 function submitBookerOrder(){
-  const customerId = parseInt(document.getElementById('bo_customer').value);
-  const items = bookerOrderItems.filter(it=>it.productId);
-  if(!customerId){ toast('Select a customer','error'); return; }
-  if(items.length===0){ toast('Add at least one product','error'); return; }
+  const customerEl = document.getElementById('bo_customer');
+  const customerId = customerEl ? parseInt(customerEl.value) : 0;
+  const items = bookerOrderItems.filter(it=>it.productId && Number(it.qty) > 0);
+
+  if(!bookerSession || !bookerSession.name){
+    toast('Booker session expired. Please login again.','error');
+    return;
+  }
+  if(!customerId){
+    toast('Select a customer','error');
+    return;
+  }
+  if(items.length===0){
+    toast('Select a product and enter a quantity greater than 0','error');
+    return;
+  }
   if(bookerEditingOrderId){
     const o = state.orders.find(x=>x.id===bookerEditingOrderId);
     if(o){ o.customerId = customerId; o.items = items; o.gps = bookerGps || o.gps; persist('orders'); toast('Order updated'); }
@@ -1657,8 +1671,6 @@ setTimeout(hidePreloader, 1100);
   window.fbOnSnapshot = onSnapshot;
 
   if(window.startApp){ window.startApp(); }
-let bookerEditingOrderId = null;
-
 function deleteBookerOrder(id){
   if(!confirm('Delete this order?')) return;
   state.orders = state.orders.filter(o=>o.id!==id);
