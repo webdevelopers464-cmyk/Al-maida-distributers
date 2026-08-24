@@ -1092,7 +1092,8 @@ function bookerAppHtml(){
     <div class="table-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th></tr></thead><tbody>
     ${state.orders.filter(o=>o.bookerName===bookerSession.name).slice().reverse().map(o=>{
       const cust = state.customers.find(c=>c.id===o.customerId);
-      return `<tr><td class="mono">ORD-${String(o.id).padStart(4,'0')}</td><td>${cust?cust.name:'-'}</td><td>${o.date}</td><td>${statusBadge(o.status)}</td></tr>`;
+      return `<tr><td class="mono">ORD-${String(o.id).padStart(4,'0')}</td><td>${cust?cust.name:'-'}</td><td>${o.date}</td><td>${statusBadge(o.status)}</td>
+<td style="text-align:right;"><button class="icon-btn" onclick="editBookerOrder(${o.id})"><i class="fa-solid fa-pen"></i></button><button class="icon-btn" onclick="deleteBookerOrder(${o.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`;
     }).join('')}
     </tbody></table></div>`}
     </div>
