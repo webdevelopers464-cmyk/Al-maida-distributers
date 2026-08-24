@@ -754,40 +754,124 @@ function openCustomerHistory(id){
 =================================================================== */
 let invoiceItems = [];
 let invoiceCustomerId = '';
+let invoiceEditingId = null;
+
 function viewInvoices(){
   return `
   <div class="panel">
     <div class="panel-head"><h3>Invoices</h3><button class="btn btn-primary" onclick="openInvoiceForm()"><i class="fa-solid fa-plus"></i> New Invoice</button></div>
     <div class="panel-body">
       ${state.invoices.length===0 ? emptyState('fa-file-invoice-dollar','No invoices created yet.') : `
-      <div class="table-wrap"><table><thead><tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Total</th><th>Payable</th><th></th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Total</th><th>Payable</th><th>Actions</th></tr></thead><tbody>
       ${state.invoices.slice().reverse().map(i=>{
         const cust = state.customers.find(c=>c.id===i.customerId);
         return `<tr><td class="mono">${i.invoiceNo}</td><td><strong>${cust?cust.name:'—'}</strong></td><td>${i.date}</td><td>${fmt(i.invoiceTotal)}</td><td>${fmt(i.totalPayable)}</td>
-        <td style="text-align:right;"><button class="btn btn-outline btn-sm" onclick="printInvoice(${i.id})"><i class="fa-solid fa-print"></i> Print</button></td></tr>`;
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn btn-outline btn-sm" onclick="editInvoice(${i.id})" title="Edit Invoice"><i class="fa-solid fa-pen"></i> Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteInvoice(${i.id})" title="Delete Invoice"><i class="fa-solid fa-trash"></i> Delete</button>
+          <button class="btn btn-outline btn-sm" onclick="printInvoice(${i.id})" title="Print Invoice"><i class="fa-solid fa-print"></i> Print</button>
+        </td></tr>`;
       }).join('')}
       </tbody></table></div>`}
     </div>
   </div>`;
 }
+
 function openInvoiceForm(){
+  invoiceEditingId = null;
   invoiceItems = [emptyInvItem()];
   invoiceCustomerId = '';
   renderInvoiceModal();
 }
+
+function editInvoice(id){
+  const inv = state.invoices.find(x=>x.id===id);
+  if(!inv){ toast('Invoice not found','error'); return; }
+
+  invoiceEditingId = id;
+  invoiceCustomerId = String(inv.customerId);
+  invoiceItems = (inv.items || []).map(it=>({
+    productId: it.productId,
+    packing: it.packing || '',
+    batch: it.batch || '',
+    qty: Number(it.qty)||0,
+    bonus: Number(it.bonus)||0,
+    rate: Number(it.rate)||0,
+    disc: Number(it.disc)||0
+  }));
+
+  if(invoiceItems.length===0) invoiceItems = [emptyInvItem()];
+  renderInvoiceModal(inv.date || todayStr());
+}
+
+function getCustomerBalanceExcludingInvoice(customerId, excludeInvoiceId){
+  const cust = state.customers.find(c=>c.id===customerId);
+  if(!cust) return 0;
+
+  const rows = state.invoices
+    .filter(i=>i.customerId===customerId && i.id!==excludeInvoiceId)
+    .slice()
+    .sort((a,b)=>a.id-b.id);
+
+  if(rows.length===0){
+    const excluded = excludeInvoiceId ? state.invoices.find(i=>i.id===excludeInvoiceId) : null;
+    return excluded && excluded.customerId===customerId
+      ? Number(excluded.previousBalance)||0
+      : Number(cust.balance)||0;
+  }
+
+  let balance = Number(rows[0].previousBalance)||0;
+  rows.forEach(i=>{ balance += Number(i.invoiceTotal)||0; });
+  return balance;
+}
+
+function rebuildCustomerBalance(customerId, fallbackBalance, forceOpening=false){
+  const cust = state.customers.find(c=>c.id===customerId);
+  if(!cust) return;
+
+  const rows = state.invoices
+    .filter(i=>i.customerId===customerId)
+    .slice()
+    .sort((a,b)=>a.id-b.id);
+
+  if(rows.length===0){
+    cust.balance = Number(fallbackBalance)||0;
+    return;
+  }
+
+  let running = forceOpening
+    ? Number(fallbackBalance)||0
+    : Number(rows[0].previousBalance);
+
+  if(!Number.isFinite(running)) running = Number(fallbackBalance)||0;
+
+  rows.forEach(i=>{
+    i.previousBalance = running;
+    i.totalPayable = running + (Number(i.invoiceTotal)||0);
+    i.amountInWords = numberToWords(i.totalPayable);
+    running = i.totalPayable;
+  });
+
+  cust.balance = running;
+}
+
 function emptyInvItem(){ return {productId:'', packing:'', batch:'', qty:1, bonus:0, rate:0, disc:0}; }
 function nextInvoiceNo(){ return 'INV-' + state.settings.year + '-' + String(state.settings.invoiceSeq).padStart(4,'0'); }
 
-function renderInvoiceModal(){
+function renderInvoiceModal(editDate){
   const cust = state.customers.find(c=>c.id==invoiceCustomerId);
+  const editing = !!invoiceEditingId;
+  const currentInv = editing ? state.invoices.find(i=>i.id===invoiceEditingId) : null;
+  const dateValue = editDate || (currentInv ? currentInv.date : todayStr());
+
   const body = `
   <div class="form-row">
-    <div class="field"><label>Invoice #</label><input value="${nextInvoiceNo()}" disabled></div>
-    <div class="field"><label>Date</label><input id="iv_date" type="date" value="${todayStr()}"></div>
+    <div class="field"><label>Invoice #</label><input value="${editing ? currentInv.invoiceNo : nextInvoiceNo()}" disabled></div>
+    <div class="field"><label>Date</label><input id="iv_date" type="date" value="${dateValue}"></div>
   </div>
   <div class="form-row">
     <div class="field"><label>Customer</label>
-      <select id="iv_customer" onchange="invoiceCustomerId=this.value; renderInvoiceModal();">
+      <select id="iv_customer" onchange="invoiceCustomerId=this.value; renderInvoiceModal(document.getElementById('iv_date')?.value || '${dateValue}');">
         <option value="">-- select customer --</option>
         ${state.customers.map(c=>`<option value="${c.id}" ${c.id==invoiceCustomerId?'selected':''}>${c.code} - ${c.name}</option>`).join('')}
       </select>
@@ -802,9 +886,10 @@ function renderInvoiceModal(){
 
   <div class="totals-box" id="iv_totals">${invoiceTotalsHtml()}</div>
   `;
-  const foot = `<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveInvoice()"><i class="fa-solid fa-check"></i> Save & Print Invoice</button>`;
-  openModal('New Invoice', body, foot, true);
+  const foot = `<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveInvoice()"><i class="fa-solid fa-check"></i> ${editing?'Update & Print Invoice':'Save & Print Invoice'}</button>`;
+  openModal(editing ? 'Edit Invoice — ' + currentInv.invoiceNo : 'New Invoice', body, foot, true);
 }
+
 function invoiceRow(it, idx){
   const prod = state.products.find(p=>p.id==it.productId);
   const amount = calcLineAmount(it);
@@ -816,14 +901,15 @@ function invoiceRow(it, idx){
     </select></td>
     <td class="mono">${it.packing||'-'}</td>
     <td class="mono">${it.batch||'-'}</td>
-    <td><input type="number" value="${it.qty}" oninput="invoiceItems[${idx}].qty=parseFloat(this.value)||0; updateInvoiceCalc();"></td>
-    <td><input type="number" value="${it.bonus}" oninput="invoiceItems[${idx}].bonus=parseFloat(this.value)||0; updateInvoiceCalc();"></td>
-    <td><input type="number" value="${it.rate}" oninput="invoiceItems[${idx}].rate=parseFloat(this.value)||0; updateInvoiceCalc();"></td>
-    <td><input type="number" value="${it.disc}" oninput="invoiceItems[${idx}].disc=parseFloat(this.value)||0; updateInvoiceCalc();"></td>
+    <td><input type="number" min="0" value="${it.qty}" oninput="invoiceItems[${idx}].qty=Math.max(0,parseFloat(this.value)||0); updateInvoiceCalc();"></td>
+    <td><input type="number" min="0" value="${it.bonus}" oninput="invoiceItems[${idx}].bonus=Math.max(0,parseFloat(this.value)||0); updateInvoiceCalc();"></td>
+    <td><input type="number" min="0" value="${it.rate}" oninput="invoiceItems[${idx}].rate=Math.max(0,parseFloat(this.value)||0); updateInvoiceCalc();"></td>
+    <td><input type="number" min="0" max="100" value="${it.disc}" oninput="invoiceItems[${idx}].disc=Math.min(100,Math.max(0,parseFloat(this.value)||0)); updateInvoiceCalc();"></td>
     <td class="mono">${fmt(amount)}</td>
     <td><button class="icon-btn" onclick="removeInvoiceRow(${idx})"><i class="fa-solid fa-xmark"></i></button></td>
   </tr>`;
 }
+
 function onInvProductChange(idx, val){
   const p = state.products.find(x=>x.id==val);
   invoiceItems[idx].productId = val ? parseInt(val) : '';
@@ -832,22 +918,28 @@ function onInvProductChange(idx, val){
   invoiceItems[idx].rate = p ? p.rate : 0;
   updateInvoiceCalc();
 }
+
 function calcLineAmount(it){
   const gross = it.qty * it.rate;
   const discAmt = gross * (it.disc/100);
   return gross - discAmt;
 }
+
 function addInvoiceRow(){ invoiceItems.push(emptyInvItem()); updateInvoiceCalc(true); }
 function removeInvoiceRow(idx){ invoiceItems.splice(idx,1); if(invoiceItems.length===0) invoiceItems.push(emptyInvItem()); updateInvoiceCalc(true); }
+
 function invoiceTotals(){
   let grand=0, disc=0;
   invoiceItems.forEach(it=>{ grand += it.qty*it.rate; disc += (it.qty*it.rate)*(it.disc/100); });
   const invoiceTotal = grand - disc;
-  const cust = state.customers.find(c=>c.id==invoiceCustomerId);
-  const prevBal = cust ? cust.balance : 0;
+  const prevBal = getCustomerBalanceExcludingInvoice(
+    parseInt(invoiceCustomerId)||0,
+    invoiceEditingId
+  );
   const payable = invoiceTotal + prevBal;
   return {grand, disc, invoiceTotal, prevBal, payable};
 }
+
 function invoiceTotalsHtml(){
   const t = invoiceTotals();
   return `
@@ -858,35 +950,184 @@ function invoiceTotalsHtml(){
   <div class="row grand"><span>Total Payable</span><span>${fmt(t.payable)}</span></div>
   <div class="words-box">${numberToWords(t.payable)}</div>`;
 }
+
 function updateInvoiceCalc(fullRerender){
-  if(fullRerender){ renderInvoiceModal(); return; }
+  if(fullRerender){ renderInvoiceModal(document.getElementById('iv_date')?.value || todayStr()); return; }
   document.getElementById('iv_items_body').innerHTML = invoiceItems.map((it,idx)=>invoiceRow(it,idx)).join('');
   document.getElementById('iv_totals').innerHTML = invoiceTotalsHtml();
 }
+
 function saveInvoice(){
   if(!invoiceCustomerId){ toast('Please select a customer','error'); return; }
-  const items = invoiceItems.filter(it=>it.productId);
-  if(items.length===0){ toast('Add at least one item','error'); return; }
+
+  const items = invoiceItems.filter(it=>it.productId && Number(it.qty)>0);
+  if(items.length===0){ toast('Add at least one item with quantity','error'); return; }
+
   const date = document.getElementById('iv_date').value || todayStr();
-  const finalItems = items.map(it=>({productId:it.productId, packing:it.packing, batch:it.batch, qty:it.qty, bonus:it.bonus, rate:it.rate, disc:it.disc, amount:calcLineAmount(it)}));
+  const finalItems = items.map(it=>({
+    productId:it.productId,
+    packing:it.packing,
+    batch:it.batch,
+    qty:Number(it.qty)||0,
+    bonus:Number(it.bonus)||0,
+    rate:Number(it.rate)||0,
+    disc:Number(it.disc)||0,
+    amount:calcLineAmount(it)
+  }));
+
+  const editing = invoiceEditingId !== null;
+  const existing = editing ? state.invoices.find(i=>i.id===invoiceEditingId) : null;
+
+  if(editing && !existing){
+    toast('Invoice not found','error');
+    invoiceEditingId = null;
+    return;
+  }
+
+  // Validate stock before changing anything.
+  // During edit, the old invoice's stock is temporarily available again.
+  const availableByProduct = {};
+  state.products.forEach(p=>{ availableByProduct[p.id] = Number(p.stock)||0; });
+
+  if(existing){
+    (existing.items||[]).forEach(it=>{
+      availableByProduct[it.productId] = (availableByProduct[it.productId]||0) +
+        (Number(it.qty)||0) + (Number(it.bonus)||0);
+    });
+  }
+
+  for(const it of finalItems){
+    const needed = (Number(it.qty)||0) + (Number(it.bonus)||0);
+    if((availableByProduct[it.productId]||0) < needed){
+      const p = state.products.find(x=>x.id===it.productId);
+      toast(`Not enough stock for ${p?p.name:'selected product'}. Available: ${availableByProduct[it.productId]||0}`, 'error');
+      return;
+    }
+    availableByProduct[it.productId] -= needed;
+  }
+
   const t = invoiceTotals();
+  const customerId = parseInt(invoiceCustomerId);
+
+  if(editing){
+    const oldCustomerId = existing.customerId;
+    const oldOpeningBalance = Number(existing.previousBalance)||0;
+    const oldCustomerInvoices = state.invoices
+      .filter(i=>i.customerId===oldCustomerId)
+      .slice()
+      .sort((a,b)=>a.id-b.id);
+    const oldWasFirstInvoice = oldCustomerInvoices.length > 0 && oldCustomerInvoices[0].id === existing.id;
+
+    // Restore stock consumed by the old invoice.
+    (existing.items||[]).forEach(it=>{
+      const p = state.products.find(x=>x.id===it.productId);
+      if(p) p.stock += (Number(it.qty)||0) + (Number(it.bonus)||0);
+    });
+
+    // Apply the new invoice stock consumption.
+    finalItems.forEach(it=>{
+      const p = state.products.find(x=>x.id===it.productId);
+      if(p) p.stock -= (Number(it.qty)||0) + (Number(it.bonus)||0);
+    });
+
+    // Keep the original invoice number and ID.
+    Object.assign(existing, {
+      customerId,
+      date,
+      items:finalItems,
+      grandTotal:t.grand,
+      totalDiscount:t.disc,
+      invoiceTotal:t.invoiceTotal,
+      previousBalance:t.prevBal,
+      totalPayable:t.payable,
+      amountInWords:numberToWords(t.payable)
+    });
+
+    // Rebuild balances for both affected customers.
+    rebuildCustomerBalance(
+      oldCustomerId,
+      oldOpeningBalance,
+      customerId !== oldCustomerId && oldWasFirstInvoice
+    );
+
+    if(customerId !== oldCustomerId){
+      rebuildCustomerBalance(customerId, t.prevBal);
+    }
+
+    persist('invoices'); persist('products'); persist('customers');
+    closeModal();
+    render('invoices');
+    invoiceEditingId = null;
+    toast('Invoice ' + existing.invoiceNo + ' updated');
+    printInvoice(existing.id);
+    return;
+  }
+
   const invoiceNo = nextInvoiceNo();
   const invoice = {
-    id:nextId(state.invoices), invoiceNo, customerId:parseInt(invoiceCustomerId), date, items:finalItems,
-    grandTotal:t.grand, totalDiscount:t.disc, invoiceTotal:t.invoiceTotal, previousBalance:t.prevBal,
-    totalPayable:t.payable, amountInWords:numberToWords(t.payable)
+    id:nextId(state.invoices),
+    invoiceNo,
+    customerId,
+    date,
+    items:finalItems,
+    grandTotal:t.grand,
+    totalDiscount:t.disc,
+    invoiceTotal:t.invoiceTotal,
+    previousBalance:t.prevBal,
+    totalPayable:t.payable,
+    amountInWords:numberToWords(t.payable)
   };
+
   state.invoices.push(invoice);
-  // stock deduction
-  finalItems.forEach(it=>{ const p = state.products.find(x=>x.id===it.productId); if(p) p.stock -= (it.qty + (it.bonus||0)); });
-  // customer balance update
+
+  finalItems.forEach(it=>{
+    const p = state.products.find(x=>x.id===it.productId);
+    if(p) p.stock -= (it.qty + (it.bonus||0));
+  });
+
   const cust = state.customers.find(c=>c.id===invoice.customerId);
   if(cust) cust.balance = t.payable;
+
   state.settings.invoiceSeq += 1;
   persist('invoices'); persist('products'); persist('customers'); persist('settings');
-  closeModal(); render('invoices');
+  closeModal();
+  render('invoices');
   toast('Invoice ' + invoiceNo + ' saved');
   printInvoice(invoice.id);
+}
+
+function deleteInvoice(id){
+  const inv = state.invoices.find(i=>i.id===id);
+  if(!inv){ toast('Invoice not found','error'); return; }
+
+  const cust = state.customers.find(c=>c.id===inv.customerId);
+  const customerName = cust ? cust.name : 'this customer';
+
+  if(!confirm(`Delete ${inv.invoiceNo} for ${customerName}?\n\nThe invoice will be removed, its stock will be restored, and the customer balance will be recalculated.`)){
+    return;
+  }
+
+  const oldOpeningBalance = Number(inv.previousBalance)||0;
+  const customerInvoices = state.invoices
+    .filter(i=>i.customerId===inv.customerId)
+    .slice()
+    .sort((a,b)=>a.id-b.id);
+  const wasFirstInvoice = customerInvoices.length > 0 && customerInvoices[0].id === inv.id;
+
+  // Restore stock consumed by this invoice.
+  (inv.items||[]).forEach(it=>{
+    const p = state.products.find(x=>x.id===it.productId);
+    if(p) p.stock += (Number(it.qty)||0) + (Number(it.bonus)||0);
+  });
+
+  state.invoices = state.invoices.filter(i=>i.id!==id);
+
+  // Recalculate the customer's running balance after deletion.
+  rebuildCustomerBalance(inv.customerId, oldOpeningBalance, wasFirstInvoice);
+
+  persist('invoices'); persist('products'); persist('customers');
+  render('invoices');
+  toast(inv.invoiceNo + ' deleted', 'warn');
 }
 
 function printInvoice(id){
@@ -1064,7 +1305,7 @@ function bookerAppHtml(){
             <button class="btn btn-primary btn-sm" style="margin-top:6px;" type="button" onclick="setGpsFromLink()"><i class="fa-solid fa-check"></i> Use This Location</button>
             <p style="font-size:10.5px; color:var(--text-muted); margin-top:5px; line-height:1.5;">
               <strong>Reliable tareeqa:</strong> Computer pe maps.google.com kholo → jagah search karo → map par us point pe <strong>right-click</strong> karo → "What's here?" pe click karo → neeche coordinates dikhengay (jaise <span class="mono">29.9536, 70.9556</span>) → wahi copy kar ke yahan paste karo.<br>
-              <span style="color:var(--red-700);">Best result: Google Maps mein exact hospital/shop par pin lagao, "What's here?" se coordinates copy karo, aur yahan lat,lng paste karo. Short maps.app.goo.gl links ko browser mein expand kiye baghair exact coordinates reliably read nahi kiye ja sakte.</span>
+              <span style="color:var(--red-700);">Mobile "Share → Copy link" wala chota link (maps.app.goo.gl) kaam nahi karega.</span>
             </p>
           </div>
           <div id="gpsResult" style="margin-top:6px;"></div>
@@ -1089,7 +1330,7 @@ function bookerAppHtml(){
     <div class="panel-head"><h3>My Orders</h3></div>
     <div class="panel-body">
     ${state.orders.filter(o=>o.bookerName===bookerSession.name).length===0 ? emptyState('fa-box','No orders submitted yet.') : `
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th></tr></thead><tbody>
     ${state.orders.filter(o=>o.bookerName===bookerSession.name).slice().reverse().map(o=>{
       const cust = state.customers.find(c=>c.id===o.customerId);
       return `<tr><td class="mono">ORD-${String(o.id).padStart(4,'0')}</td><td>${cust?cust.name:'-'}</td><td>${o.date}</td><td>${statusBadge(o.status)}</td>
@@ -1154,97 +1395,19 @@ function toggleManualGps(){
 }
 function parseLatLngFromText(text){
   if(!text) return null;
-
-  /*
-    Google Maps can contain several coordinate pairs.
-    IMPORTANT: for a /maps/dir/ URL the SECOND coordinate pair
-    is the destination. The @lat,lng part is only the map viewport
-    and must NOT be used as the customer location.
-
-    Example:
-    /maps/dir/28.419968,70.3342079/28.43,70.3/@28.4261144,70.2953648,14z
-                                      ^^^^^^^^^^
-                                      destination
-  */
-
-  const clean = decodeURIComponent(String(text).trim());
-
-  const valid = (lat, lng) => {
-    lat = parseFloat(lat);
-    lng = parseFloat(lng);
-    if(
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lng) ||
-      Math.abs(lat) > 90 ||
-      Math.abs(lng) > 180
-    ) return null;
-    return {lat, lng};
-  };
-
-  // 1) Google Maps Directions URL:
-  //    /maps/dir/ORIGIN/DESTINATION/...
-  //    MUST be checked before @lat,lng.
-  const dir = clean.match(/\/maps\/dir\/([^/]+)\/([^/]+)/i);
-  if(dir){
-    const destination = dir[2].match(/(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/);
-    if(destination){
-      const coords = valid(destination[1], destination[2]);
-      if(coords) return coords;
-    }
-  }
-
-  // 2) Explicit destination= coordinates.
-  const destinationParam = clean.match(
-    /[?&]destination=(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/i
-  );
-  if(destinationParam){
-    const coords = valid(destinationParam[1], destinationParam[2]);
-    if(coords) return coords;
-  }
-
-  // 3) Google Maps place metadata.
-  const placeMeta = clean.match(
-    /!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/i
-  );
-  if(placeMeta){
-    const coords = valid(placeMeta[1], placeMeta[2]);
-    if(coords) return coords;
-  }
-
-  // 4) Explicit q= coordinates.
-  const qParam = clean.match(
-    /[?&]q=(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/i
-  );
-  if(qParam){
-    const coords = valid(qParam[1], qParam[2]);
-    if(coords) return coords;
-  }
-
-  // 5) Normal Google Maps place URL: /@lat,lng,zoom
-  const mapCenter = clean.match(
-    /@(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/i
-  );
-  if(mapCenter){
-    const coords = valid(mapCenter[1], mapCenter[2]);
-    if(coords) return coords;
-  }
-
-  // 6) Plain "lat,lng".
-  const plain = clean.match(
-    /^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/
-  );
-  if(plain){
-    const coords = valid(plain[1], plain[2]);
-    if(coords) return coords;
-  }
-
-  return null;
+  // Handles Google Maps link formats like:
+  //  .../@30.1234,71.5678,15z   |   ?q=30.1234,71.5678   |   plain "30.1234, 71.5678"
+  const m = text.match(/(-?\d{1,3}\.\d{3,})\s*[,\s]\s*(-?\d{1,3}\.\d{3,})/);
+  if(!m) return null;
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+  if(isNaN(lat) || isNaN(lng) || Math.abs(lat)>90 || Math.abs(lng)>180) return null;
+  return {lat, lng};
 }
 function setGpsFromLink(){
   const raw = document.getElementById('manualGpsInput').value.trim();
   const coords = parseLatLngFromText(raw);
   if(!coords){
-    toast('Could not find the exact place coordinates. Paste a Google Maps link containing the place, or paste coordinates as lat,lng (example: 29.9536, 70.9556).', 'error');
+    toast('Could not find coordinates in that link. Make sure you copied the full Google Maps share link.', 'error');
     return;
   }
   bookerGps = coords;
@@ -1265,57 +1428,23 @@ function distanceKm(lat1, lng1, lat2, lng2){
 }
 function findNearestOrders(){
   if(!geoPrecheck()) return;
-
   const resultBox = document.getElementById('routeResult');
-  resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Getting an accurate current location...</p><small style="color:var(--text-muted);">Please wait a few seconds while GPS settles.</small></div>`;
-
-  /*
-    Get several GPS readings instead of trusting the first one.
-    This greatly reduces the chance of a bad first browser/Wi-Fi fix.
-    We use the reading with the smallest reported accuracy radius.
-  */
-  const readings = [];
-  let finished = false;
-
-  const finish = (bestPos) => {
-    if(finished) return;
-    finished = true;
-
-    if(!bestPos){
-      resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><p>Could not get an accurate location.</p><small style="color:var(--text-muted);">Turn on Location/GPS, allow this site to use your location, then try again.</small></div>`;
-      return;
-    }
-
-    const myLat = bestPos.coords.latitude;
-    const myLng = bestPos.coords.longitude;
-    const accuracy = Math.round(bestPos.coords.accuracy || 0);
-
-    const myOrders = state.orders.filter(o =>
-      o.bookerName===bookerSession.name &&
-      o.status!=='Delivered' &&
-      o.gps &&
-      Number.isFinite(Number(o.gps.lat)) &&
-      Number.isFinite(Number(o.gps.lng))
-    );
-
+  resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Getting your current location...</p></div>`;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const myLat = pos.coords.latitude, myLng = pos.coords.longitude;
+    const myOrders = state.orders.filter(o=>o.bookerName===bookerSession.name && o.status!=='Delivered' && o.gps);
     if(myOrders.length===0){
       resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-map-pin"></i><p>No pending orders with a saved location yet. Capture GPS when placing an order to use this feature.</p></div>`;
       return;
     }
-
     const withDist = myOrders.map(o=>{
       const cust = state.customers.find(c=>c.id===o.customerId);
-      const d = distanceKm(myLat, myLng, Number(o.gps.lat), Number(o.gps.lng));
+      const d = distanceKm(myLat, myLng, o.gps.lat, o.gps.lng);
       return {order:o, cust, dist:d};
     }).sort((a,b)=>a.dist-b.dist);
 
     resultBox.innerHTML = `
-    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">
-      Sorted nearest to farthest from your current location. Visit #1 first.
-      <span style="display:block; margin-top:4px; color:${accuracy<=100?'var(--mint-600)':'var(--amber-700)'};">
-        <i class="fa-solid fa-location-dot"></i> GPS accuracy: ±${accuracy}m
-      </span>
-    </div>
+    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">Sorted nearest to farthest from your current location. Visit #1 first.</div>
     <div class="table-wrap"><table><thead><tr><th>Visit</th><th>Customer</th><th>Order</th><th>Distance</th><th>Status</th><th></th></tr></thead><tbody>
     ${withDist.map((w,idx)=>`<tr ${idx===0?'style="background:var(--mint-100);"':''}>
       <td><strong style="font-family:var(--font-d); color:${idx===0?'var(--mint-600)':'var(--teal-900)'};">${idx+1}${idx===0?' 🡒':''}</strong></td>
@@ -1323,61 +1452,12 @@ function findNearestOrders(){
       <td class="mono">ORD-${String(w.order.id).padStart(4,'0')}</td>
       <td class="mono">${w.dist.toFixed(2)} km</td>
       <td>${statusBadge(w.order.status)}</td>
-      <td><a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${Number(w.order.gps.lat)},${Number(w.order.gps.lng)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right"></i> Navigate</a></td>
+      <td><a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${w.order.gps.lat},${w.order.gps.lng}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right"></i> Navigate</a></td>
     </tr>`).join('')}
     </tbody></table></div>`;
-  };
-
-  const success = pos => {
-    readings.push(pos);
-
-    // Keep collecting briefly so a poor first fix does not win.
-    const best = readings.reduce((a,b) =>
-      (b.coords.accuracy || Infinity) < (a.coords.accuracy || Infinity) ? b : a
-    );
-
-    if((best.coords.accuracy || Infinity) <= 50 || readings.length >= 4){
-      finish(best);
-    }
-  };
-
-  const failure = err => {
-    // Only finish immediately for permission/unsupported errors.
-    // A temporary timeout can still be recovered by the fallback.
-    if(err.code===1 || err.code===2){
-      finish(null);
-    }
-  };
-
-  navigator.geolocation.getCurrentPosition(success, failure, {
-    enableHighAccuracy:true,
-    timeout:15000,
-    maximumAge:0
-  });
-
-  // Second request helps on devices where the first GPS fix is slow.
-  setTimeout(()=>{
-    if(finished) return;
-    navigator.geolocation.getCurrentPosition(success, failure, {
-      enableHighAccuracy:true,
-      timeout:15000,
-      maximumAge:0
-    });
-  }, 1800);
-
-  // Never leave the Booker stuck on "Getting location".
-  setTimeout(()=>{
-    if(!finished){
-      if(readings.length){
-        const best = readings.reduce((a,b) =>
-          (b.coords.accuracy || Infinity) < (a.coords.accuracy || Infinity) ? b : a
-        );
-        finish(best);
-      }else{
-        finish(null);
-      }
-    }
-  }, 16500);
+  }, err=>{
+    resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><p>${geoErrorMessage(err)}</p></div>`;
+  }, {enableHighAccuracy:true, timeout:12000, maximumAge:0});
 }
 function submitBookerOrder(){
   const customerId = parseInt(document.getElementById('bo_customer').value);
@@ -1550,53 +1630,6 @@ function hidePreloader(){
   if(pl) pl.classList.add('hide');
 }
 setTimeout(hidePreloader, 1100);
-
-/* ================================================================
-   BOOKER ORDER EDIT / DELETE
-   Inline onclick handlers need these functions in the classic
-   script scope. This also keeps the edit ID shared with
-   submitBookerOrder().
-   ================================================================ */
-let bookerEditingOrderId = null;
-
-function deleteBookerOrder(id){
-  const order = state.orders.find(o => o.id === id);
-  if(!order) return;
-
-  if(!confirm('Delete this order?')) return;
-
-  state.orders = state.orders.filter(o => o.id !== id);
-  persist('orders');
-  render('booker');
-  toast('Order deleted','warn');
-}
-
-function editBookerOrder(id){
-  const order = state.orders.find(o => o.id === id);
-  if(!order) return;
-
-  bookerEditingOrderId = id;
-  bookerOrderItems = (order.items || []).map(item => ({
-    productId: item.productId,
-    qty: item.qty
-  }));
-  bookerGps = order.gps || null;
-
-  render('booker');
-
-  setTimeout(() => {
-    const customerEl = document.getElementById('bo_customer');
-    if(customerEl) customerEl.value = String(order.customerId);
-
-    const gpsEl = document.getElementById('gpsResult');
-    if(gpsEl && bookerGps){
-      gpsEl.innerHTML =
-        `<span class="gps-chip"><i class="fa-solid fa-location-dot"></i> ` +
-        `${bookerGps.lat.toFixed(5)}, ${bookerGps.lng.toFixed(5)}</span>`;
-    }
-  }, 50);
-}
-
 </script>
 
 <!-- Firebase Cloud Sync -->
@@ -1624,6 +1657,30 @@ function editBookerOrder(id){
   window.fbOnSnapshot = onSnapshot;
 
   if(window.startApp){ window.startApp(); }
+let bookerEditingOrderId = null;
+
+function deleteBookerOrder(id){
+  if(!confirm('Delete this order?')) return;
+  state.orders = state.orders.filter(o=>o.id!==id);
+  persist('orders');
+  render('booker');
+  toast('Order deleted','warn');
+}
+
+function editBookerOrder(id){
+  const o = state.orders.find(x=>x.id===id);
+  if(!o) return;
+  bookerEditingOrderId = id;
+  bookerOrderItems = o.items.map(it=>({productId:it.productId, qty:it.qty}));
+  bookerGps = o.gps || null;
+  render('booker');
+  setTimeout(()=>{
+    document.getElementById('bo_customer').value = o.customerId;
+    if(bookerGps){
+      document.getElementById('gpsResult').innerHTML = `<span class="gps-chip"><i class="fa-solid fa-location-dot"></i> ${bookerGps.lat.toFixed(5)}, ${bookerGps.lng.toFixed(5)}</span>`;
+    }
+  },50);
+}
 </script>
 </body>
 </html>
