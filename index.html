@@ -1405,6 +1405,30 @@ setTimeout(hidePreloader, 1100);
   window.fbOnSnapshot = onSnapshot;
 
   if(window.startApp){ window.startApp(); }
+let bookerEditingOrderId = null;
+
+function deleteBookerOrder(id){
+  if(!confirm('Delete this order?')) return;
+  state.orders = state.orders.filter(o=>o.id!==id);
+  persist('orders');
+  render('booker');
+  toast('Order deleted','warn');
+}
+
+function editBookerOrder(id){
+  const o = state.orders.find(x=>x.id===id);
+  if(!o) return;
+  bookerEditingOrderId = id;
+  bookerOrderItems = o.items.map(it=>({productId:it.productId, qty:it.qty}));
+  bookerGps = o.gps || null;
+  render('booker');
+  setTimeout(()=>{
+    document.getElementById('bo_customer').value = o.customerId;
+    if(bookerGps){
+      document.getElementById('gpsResult').innerHTML = `<span class="gps-chip"><i class="fa-solid fa-location-dot"></i> ${bookerGps.lat.toFixed(5)}, ${bookerGps.lng.toFixed(5)}</span>`;
+    }
+  },50);
+}
 </script>
 </body>
 </html>
