@@ -1218,10 +1218,16 @@ function submitBookerOrder(){
   const items = bookerOrderItems.filter(it=>it.productId);
   if(!customerId){ toast('Select a customer','error'); return; }
   if(items.length===0){ toast('Add at least one product','error'); return; }
-  state.orders.push({id:nextId(state.orders), bookerName:bookerSession.name, customerId, date:todayStr(), items, status:'Pending', gps:bookerGps});
-  persist('orders');
+  if(bookerEditingOrderId){
+    const o = state.orders.find(x=>x.id===bookerEditingOrderId);
+    if(o){ o.customerId = customerId; o.items = items; o.gps = bookerGps || o.gps; persist('orders'); toast('Order updated'); }
+    bookerEditingOrderId = null;
+  } else {
+    state.orders.push({id:nextId(state.orders), bookerName:bookerSession.name, customerId, date:todayStr(), items, status:'Pending', gps:bookerGps});
+    persist('orders');
+    toast('Order submitted successfully');
+  }
   bookerOrderItems = []; bookerGps = null;
-  toast('Order submitted successfully');
   render('booker');
 }
 function bookerLogout(){ bookerSession = null; render('booker'); }
