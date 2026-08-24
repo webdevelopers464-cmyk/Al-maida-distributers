@@ -1187,23 +1187,57 @@ function distanceKm(lat1, lng1, lat2, lng2){
 }
 function findNearestOrders(){
   if(!geoPrecheck()) return;
+
   const resultBox = document.getElementById('routeResult');
-  resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Getting your current location...</p></div>`;
-  navigator.geolocation.getCurrentPosition(pos=>{
-    const myLat = pos.coords.latitude, myLng = pos.coords.longitude;
-    const myOrders = state.orders.filter(o=>o.bookerName===bookerSession.name && o.status!=='Delivered' && o.gps);
+  resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Getting an accurate current location...</p><small style="color:var(--text-muted);">Please wait a few seconds while GPS settles.</small></div>`;
+
+  /*
+    Get several GPS readings instead of trusting the first one.
+    This greatly reduces the chance of a bad first browser/Wi-Fi fix.
+    We use the reading with the smallest reported accuracy radius.
+  */
+  const readings = [];
+  let finished = false;
+
+  const finish = (bestPos) => {
+    if(finished) return;
+    finished = true;
+
+    if(!bestPos){
+      resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><p>Could not get an accurate location.</p><small style="color:var(--text-muted);">Turn on Location/GPS, allow this site to use your location, then try again.</small></div>`;
+      return;
+    }
+
+    const myLat = bestPos.coords.latitude;
+    const myLng = bestPos.coords.longitude;
+    const accuracy = Math.round(bestPos.coords.accuracy || 0);
+
+    const myOrders = state.orders.filter(o =>
+      o.bookerName===bookerSession.name &&
+      o.status!=='Delivered' &&
+      o.gps &&
+      Number.isFinite(Number(o.gps.lat)) &&
+      Number.isFinite(Number(o.gps.lng))
+    );
+
     if(myOrders.length===0){
       resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-map-pin"></i><p>No pending orders with a saved location yet. Capture GPS when placing an order to use this feature.</p></div>`;
       return;
     }
+
     const withDist = myOrders.map(o=>{
       const cust = state.customers.find(c=>c.id===o.customerId);
-      const d = distanceKm(myLat, myLng, o.gps.lat, o.gps.lng);
+      const d = distanceKm(myLat, myLng, Number(o.gps.lat), Number(o.gps.lng));
       return {order:o, cust, dist:d};
     }).sort((a,b)=>a.dist-b.dist);
 
     resultBox.innerHTML = `
-    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">Sorted nearest to farthest from your current location. Visit #1 first.</div>
+    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">
+      Sorted nearest to farthest from your current location. Visit #1 first.
+      <span style="display:block; margin-top:4px; color:${accuracy<=100?'var(--mint-600)':'var(--amber-700)'};">
+        <i class="fa-solid fa-location-dot"></i> GPS accuracy: ±${accuracy}m
+      </span>
+    </div>
     <div class="table-wrap"><table><thead><tr><th>Visit</th><th>Customer</th><th>Order</th><th>Distance</th><th>Status</th><th></th></tr></thead><tbody>
     ${withDist.map((w,idx)=>`<tr ${idx===0?'style="background:var(--mint-100);"':''}>
       <td><strong style="font-family:var(--font-d); color:${idx===0?'var(--mint-600)':'var(--teal-900)'};">${idx+1}${idx===0?' 🡒':''}</strong></td>
@@ -1211,12 +1245,61 @@ function findNearestOrders(){
       <td class="mono">ORD-${String(w.order.id).padStart(4,'0')}</td>
       <td class="mono">${w.dist.toFixed(2)} km</td>
       <td>${statusBadge(w.order.status)}</td>
-      <td><a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${w.order.gps.lat},${w.order.gps.lng}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right"></i> Navigate</a></td>
+      <td><a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${Number(w.order.gps.lat)},${Number(w.order.gps.lng)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right"></i> Navigate</a></td>
     </tr>`).join('')}
     </tbody></table></div>`;
-  }, err=>{
-    resultBox.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><p>${geoErrorMessage(err)}</p></div>`;
-  }, {enableHighAccuracy:true, timeout:12000, maximumAge:0});
+  };
+
+  const success = pos => {
+    readings.push(pos);
+
+    // Keep collecting briefly so a poor first fix does not win.
+    const best = readings.reduce((a,b) =>
+      (b.coords.accuracy || Infinity) < (a.coords.accuracy || Infinity) ? b : a
+    );
+
+    if((best.coords.accuracy || Infinity) <= 50 || readings.length >= 4){
+      finish(best);
+    }
+  };
+
+  const failure = err => {
+    // Only finish immediately for permission/unsupported errors.
+    // A temporary timeout can still be recovered by the fallback.
+    if(err.code===1 || err.code===2){
+      finish(null);
+    }
+  };
+
+  navigator.geolocation.getCurrentPosition(success, failure, {
+    enableHighAccuracy:true,
+    timeout:15000,
+    maximumAge:0
+  });
+
+  // Second request helps on devices where the first GPS fix is slow.
+  setTimeout(()=>{
+    if(finished) return;
+    navigator.geolocation.getCurrentPosition(success, failure, {
+      enableHighAccuracy:true,
+      timeout:15000,
+      maximumAge:0
+    });
+  }, 1800);
+
+  // Never leave the Booker stuck on "Getting location".
+  setTimeout(()=>{
+    if(!finished){
+      if(readings.length){
+        const best = readings.reduce((a,b) =>
+          (b.coords.accuracy || Infinity) < (a.coords.accuracy || Infinity) ? b : a
+        );
+        finish(best);
+      }else{
+        finish(null);
+      }
+    }
+  }, 16500);
 }
 function submitBookerOrder(){
   const customerId = parseInt(document.getElementById('bo_customer').value);
