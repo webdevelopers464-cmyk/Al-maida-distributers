@@ -1089,7 +1089,7 @@ function bookerAppHtml(){
     <div class="panel-head"><h3>My Orders</h3></div>
     <div class="panel-body">
     ${state.orders.filter(o=>o.bookerName===bookerSession.name).length===0 ? emptyState('fa-box','No orders submitted yet.') : `
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>
     ${state.orders.filter(o=>o.bookerName===bookerSession.name).slice().reverse().map(o=>{
       const cust = state.customers.find(c=>c.id===o.customerId);
       return `<tr><td class="mono">ORD-${String(o.id).padStart(4,'0')}</td><td>${cust?cust.name:'-'}</td><td>${o.date}</td><td>${statusBadge(o.status)}</td>
@@ -1389,6 +1389,53 @@ function hidePreloader(){
   if(pl) pl.classList.add('hide');
 }
 setTimeout(hidePreloader, 1100);
+
+/* ================================================================
+   BOOKER ORDER EDIT / DELETE
+   Inline onclick handlers need these functions in the classic
+   script scope. This also keeps the edit ID shared with
+   submitBookerOrder().
+   ================================================================ */
+let bookerEditingOrderId = null;
+
+function deleteBookerOrder(id){
+  const order = state.orders.find(o => o.id === id);
+  if(!order) return;
+
+  if(!confirm('Delete this order?')) return;
+
+  state.orders = state.orders.filter(o => o.id !== id);
+  persist('orders');
+  render('booker');
+  toast('Order deleted','warn');
+}
+
+function editBookerOrder(id){
+  const order = state.orders.find(o => o.id === id);
+  if(!order) return;
+
+  bookerEditingOrderId = id;
+  bookerOrderItems = (order.items || []).map(item => ({
+    productId: item.productId,
+    qty: item.qty
+  }));
+  bookerGps = order.gps || null;
+
+  render('booker');
+
+  setTimeout(() => {
+    const customerEl = document.getElementById('bo_customer');
+    if(customerEl) customerEl.value = String(order.customerId);
+
+    const gpsEl = document.getElementById('gpsResult');
+    if(gpsEl && bookerGps){
+      gpsEl.innerHTML =
+        `<span class="gps-chip"><i class="fa-solid fa-location-dot"></i> ` +
+        `${bookerGps.lat.toFixed(5)}, ${bookerGps.lng.toFixed(5)}</span>`;
+    }
+  }, 50);
+}
+
 </script>
 
 <!-- Firebase Cloud Sync -->
@@ -1416,30 +1463,6 @@ setTimeout(hidePreloader, 1100);
   window.fbOnSnapshot = onSnapshot;
 
   if(window.startApp){ window.startApp(); }
-let bookerEditingOrderId = null;
-
-function deleteBookerOrder(id){
-  if(!confirm('Delete this order?')) return;
-  state.orders = state.orders.filter(o=>o.id!==id);
-  persist('orders');
-  render('booker');
-  toast('Order deleted','warn');
-}
-
-function editBookerOrder(id){
-  const o = state.orders.find(x=>x.id===id);
-  if(!o) return;
-  bookerEditingOrderId = id;
-  bookerOrderItems = o.items.map(it=>({productId:it.productId, qty:it.qty}));
-  bookerGps = o.gps || null;
-  render('booker');
-  setTimeout(()=>{
-    document.getElementById('bo_customer').value = o.customerId;
-    if(bookerGps){
-      document.getElementById('gpsResult').innerHTML = `<span class="gps-chip"><i class="fa-solid fa-location-dot"></i> ${bookerGps.lat.toFixed(5)}, ${bookerGps.lng.toFixed(5)}</span>`;
-    }
-  },50);
-}
 </script>
 </body>
 </html>
