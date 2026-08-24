@@ -1064,7 +1064,7 @@ function bookerAppHtml(){
             <button class="btn btn-primary btn-sm" style="margin-top:6px;" type="button" onclick="setGpsFromLink()"><i class="fa-solid fa-check"></i> Use This Location</button>
             <p style="font-size:10.5px; color:var(--text-muted); margin-top:5px; line-height:1.5;">
               <strong>Reliable tareeqa:</strong> Computer pe maps.google.com kholo → jagah search karo → map par us point pe <strong>right-click</strong> karo → "What's here?" pe click karo → neeche coordinates dikhengay (jaise <span class="mono">29.9536, 70.9556</span>) → wahi copy kar ke yahan paste karo.<br>
-              <span style="color:var(--red-700);">Mobile "Share → Copy link" wala chota link (maps.app.goo.gl) kaam nahi karega.</span>
+              <span style="color:var(--red-700);">Best result: Google Maps mein exact hospital/shop par pin lagao, "What's here?" se coordinates copy karo, aur yahan lat,lng paste karo. Short maps.app.goo.gl links ko browser mein expand kiye baghair exact coordinates reliably read nahi kiye ja sakte.</span>
             </p>
           </div>
           <div id="gpsResult" style="margin-top:6px;"></div>
@@ -1154,19 +1154,56 @@ function toggleManualGps(){
 }
 function parseLatLngFromText(text){
   if(!text) return null;
-  // Handles Google Maps link formats like:
-  //  .../@30.1234,71.5678,15z   |   ?q=30.1234,71.5678   |   plain "30.1234, 71.5678"
-  const m = text.match(/(-?\d{1,3}\.\d{3,})\s*[,\s]\s*(-?\d{1,3}\.\d{3,})/);
-  if(!m) return null;
-  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
-  if(isNaN(lat) || isNaN(lng) || Math.abs(lat)>90 || Math.abs(lng)>180) return null;
-  return {lat, lng};
+
+  /*
+    IMPORTANT:
+    Google Maps URLs can contain several coordinate pairs.
+    The old parser simply took the FIRST pair it saw, which can be
+    the map viewport/route origin instead of the actual place.
+
+    We now check the most reliable destination/place formats first.
+  */
+  const patterns = [
+    // Google Maps place/map center: /@29.9536,70.9556,15z
+    /@(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/,
+
+    // Google Maps place metadata: !3dLAT!4dLNG
+    /!3d(-?\d{1,3}\.\d{3,})!4d(-?\d{1,3}\.\d{3,})/,
+
+    // Query destination: ?q=LAT,LNG or &q=LAT,LNG
+    /[?&]q=(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/,
+
+    // Google Maps directions destination
+    /[?&]destination=(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/,
+
+    // Plain coordinates pasted by the user
+    /^\s*(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})\s*$/
+  ];
+
+  for(const pattern of patterns){
+    const m = text.match(pattern);
+    if(!m) continue;
+
+    const lat = parseFloat(m[1]);
+    const lng = parseFloat(m[2]);
+
+    if(
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      Math.abs(lat) <= 90 &&
+      Math.abs(lng) <= 180
+    ){
+      return {lat, lng};
+    }
+  }
+
+  return null;
 }
 function setGpsFromLink(){
   const raw = document.getElementById('manualGpsInput').value.trim();
   const coords = parseLatLngFromText(raw);
   if(!coords){
-    toast('Could not find coordinates in that link. Make sure you copied the full Google Maps share link.', 'error');
+    toast('Could not find the exact place coordinates. Paste a Google Maps link containing the place, or paste coordinates as lat,lng (example: 29.9536, 70.9556).', 'error');
     return;
   }
   bookerGps = coords;
